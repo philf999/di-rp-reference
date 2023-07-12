@@ -1,8 +1,9 @@
 import { configure, ConfigureOptions } from "nunjucks";
 import { Application } from "express";
+import { getNodeEnv } from "../config";
 
 export function nunjucks(app: Application, viewsPath: string): void {
-  const isDevelopment = process.env.NODE_ENV !== "production";
+  const isDevelopment = getNodeEnv() !== "production";
   const configureOptions: ConfigureOptions = {
     autoescape: true,
     express: app,

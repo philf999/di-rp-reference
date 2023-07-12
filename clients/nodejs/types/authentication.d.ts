@@ -1,9 +1,10 @@
 type AuthMiddlewareConfiguration = {
   clientId: string;
+  clientSecret?: string;
   privateKey: string;
   clientMetadata?: Partial<ClientMetadata>;
-  redirectUri?: string;
   authorizeRedirectUri?: string;
+  postLogoutRedirectUri?: string;
   callbackRedirectUri?: string;
   identityVerificationPublicKey?: string;
 } & (
@@ -25,4 +26,14 @@ type IdentityCheckCredential = {
 
 type GovUkOneLoginUserInfo = {
   ["https://vocab.account.gov.uk/v1/coreIdentityJWT"]?: string;
+};
+
+type LogoutToken = {
+  iss: string;
+  sub?: string;
+  aud: string;
+  iat: number;
+  jti: string;
+  sid?: string;
+  events?: any;
 };

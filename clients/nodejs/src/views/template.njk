@@ -1,5 +1,5 @@
 {% extends "govuk/template.njk" %}
-{% from "components/header/macro.njk" import header %}
+{% from "govuk/components/header/macro.njk" import govukHeader %}
 
 {% block pageTitle %}Relying Party{% endblock %}
 {% block head %}
@@ -26,9 +26,10 @@
 {% endblock %}
 
 {% block header %}
-  {{ header ({
-    logotype: 'Example',
-    homepageUrl: "/"
+  {{ govukHeader ({
+    serviceName: "Department of Camelids",
+    homepageUrl: "/",
+    serviceUrl: "#"
   }) }}
 {% endblock %}
 
