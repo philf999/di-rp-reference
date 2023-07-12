@@ -1,33 +1,27 @@
 import { Request, Response, Router, urlencoded } from "express";
-import { jwtVerify, decodeJwt, KeyLike } from "jose";
-import {
-  Client,
-  generators,
-  TokenSet,
-  AuthorizationParameters,
-  BaseClient,
-} from "openid-client";
+import { jwtVerify, decodeJwt, KeyLike, createRemoteJWKSet } from "jose";
+import { Client, generators, TokenSet, AuthorizationParameters, } from "openid-client";
 import asyncHandler from "../async-handler";
 import { Claims, createClient, createIssuer, hash, readPrivateKey, readPublicKey } from "../govuk-one-login";
+import { PATH_DATA, VECTORS_OF_TRUST, LOCALE, SCOPES, HTTP_STATUS_CODES } from "../app.constants";
+import { getLogoutTokenMaxAge, getTokenValidationClockSkew, getErrorMessage} from "../config";
 
-
-/*
-  The various elements that control the user journey and returned results.
- */
-
-// Scopes
-const SCOPES = [
-  "openid", // Always included
-  "email", // Return the user's email address (NB: this is the username rather than their preferred communication email address) 
-  "phone", // Return the user's telephone number
-  "offline_access" // Return a refresh token so the access token can be refreshed before it expires
-];
+// Requested claims
+const CLAIMS = {
+  userinfo: {
+    // Core identity
+    [Claims.CoreIdentity]: { essential: true },
+    // Address
+    //[Claims.Address]: { essential: true },
+  },
+};
 
 // Issuer that is must have issued identity claims.
 const ISSUER = "https://identity.integration.account.gov.uk/";
-
 const STATE_COOKIE_NAME = "state";
 const NONCE_COOKIE_NAME = "nonce";
+const ID_TOKEN_COOKIE_NAME = "id-token";
+const BACK_CHANNEL_LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
 
 function getRedirectUri(req: Request) {
   const protocol = req.headers["x-forwarded-proto"] || req.protocol;
@@ -35,13 +29,8 @@ function getRedirectUri(req: Request) {
   return `${protocol}://${host}/oauth/callback`;
 }
 
-function getPostLogoutRedirectUri(req: Request) {
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol;
-  const host = req.headers.host;
-  return `${protocol}://${host}/oauth/post-logout`;
-}
-
 async function getResult(
+  res: Response,
   ivPublicKey: KeyLike,
   client: Client,
   tokenSet: TokenSet
@@ -49,16 +38,28 @@ async function getResult(
   if (!tokenSet.access_token) {
     throw new Error("No access token received");
   }
+  else {
+    console.log(tokenSet.access_token);
+  }
 
-  const accessToken = JSON.stringify(tokenSet.access_token, null, 2);
+  if (!tokenSet.id_token) {
+    throw new Error("No id token received");
+  }
+  else {
+    console.log(tokenSet.id_token);
+  }
 
-  const idToken = tokenSet.id_token;
-  const idTokenDecoded = tokenSet.id_token
+  const accessToken = JSON.stringify(decodeJwt(tokenSet.access_token), null, 2);
+  const idToken = tokenSet.id_token
     ? JSON.stringify(decodeJwt(tokenSet.id_token), null, 2)
     : undefined;
 
+  res.cookie(ID_TOKEN_COOKIE_NAME, tokenSet.id_token, {
+    httpOnly: true,
+  });
+
   const refreshToken = tokenSet.refresh_token
-    ? tokenSet.refresh_token
+    ? JSON.stringify(decodeJwt(tokenSet.refresh_token), null, 2)
     : undefined;
 
   // Use the access token to authenticate the call to userinfo
@@ -95,59 +96,9 @@ async function getResult(
     accessToken,
     refreshToken,
     idToken,
-    idTokenDecoded,
     userinfo: JSON.stringify(userinfo, null, 2),
     coreIdentity,
   };
-}
-
-function buildAuthorizationUrl(
-  configuration: AuthMiddlewareConfiguration,
-  req:Request,
-  res: Response<any, Record<string, any>>,
-  client: BaseClient,
-  vtr: string,
-  claims?: { userinfo: any },
-  additionalParameters?: any
-  ): string {
-
-  const redirectUri = configuration.authorizeRedirectUri ||
-    configuration.redirectUri ||
-    getRedirectUri(req);
-
-  // Generate values that protect the flow from replay attacks.
-  const nonce = generators.nonce();
-  const state = generators.state();
-
-  // Store the nonce and state in a session cookie so it can be checked in callback
-  res.cookie(NONCE_COOKIE_NAME, nonce, {
-    httpOnly: true,
-  });
-
-  res.cookie(STATE_COOKIE_NAME, state, {
-    httpOnly: true,
-  });
-
-  const authorizationParameters: AuthorizationParameters = {
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: SCOPES.join(" "),
-    state: hash(state),
-    nonce: hash(nonce),
-    vtr: vtr,
-    ui_locales: "en-GB en",
-  };
-
-  if(typeof claims === "object"){
-    authorizationParameters.claims = JSON.stringify(claims);
-  }
-
-  if(typeof additionalParameters === "object") {
-    Object.assign(authorizationParameters, additionalParameters);
-  }
-
-  // Construct the url and redirect on to the authorization endpoint
-  return client.authorizationUrl(authorizationParameters);
 }
 
 export async function auth(configuration: AuthMiddlewareConfiguration) {
@@ -162,51 +113,97 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
   );
 
   // Configuration for the authority that authenticates users and issues the tokens.
-  const issuer = await createIssuer(configuration);
+  const issuer: any = await createIssuer(configuration);
 
   // The client that requests the tokens.
-  const client:BaseClient = createClient(configuration, issuer, jwks);
+  const client = createClient(configuration, issuer, jwks);
 
   const router = Router();
 
   router.get("/oauth/login", (req: Request, res: Response) => {
 
-    // Vector of trust for authentication
-    const vtr = `["Cl.Cm"]`;
-
     // Calculate the redirect URL the should be returned to after completing the OAuth flow
-    const authorizationUrl = buildAuthorizationUrl(configuration, req, res, client, vtr, undefined, req.query);
+    const redirectUri =
+    configuration.authorizeRedirectUri ||
+    getRedirectUri(req);
 
-      // Redirect to the authorization server
-    res.redirect(authorizationUrl);
-  });
+    // Generate values that protect the flow from replay attacks.
+    const nonce = generators.nonce();
+    const state = generators.state();
+    
+    // Store the nonce and state in a session cookie so it can be checked in callback
+    res.cookie(NONCE_COOKIE_NAME, nonce, {
+      httpOnly: true,
+    });
+    res.cookie(STATE_COOKIE_NAME, state, {
+      httpOnly: true,
+    });
 
-  router.get("/oauth/iv", (req: Request, res: Response) => {
-
-    // Vector of trust for medium level of confidence
-    const vtr = `["P2.Cl.Cm"]`;
-
-    // Requested claims
-    const claims = {
-      userinfo: {
-        // Core identity
-        [Claims.CoreIdentity]: { essential: true },
-        // Address
-        //[Claims.Address]: { essential: true },
-      },
+    const authorizationParameters: AuthorizationParameters = {
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: SCOPES.join(" "),
+      state: hash(state),
+      nonce: hash(nonce),
+      vtr: JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM]),
+      ui_locales: LOCALE.EN
     };
 
-    // Calculate the redirect URL the should be returned to after completing the OAuth flow
-    const authorizationUrl = buildAuthorizationUrl(configuration, req, res, client, vtr, claims, req.query);
-
-      // Redirect to the authorization server
+    // Include claims that are being requested
+    // if(CLAIMS) {
+    //   authorizationParameters.claims = JSON.stringify(CLAIMS);
+    // }
+    
+    // Construct the url and redirect on to the authorization endpoint
+    const authorizationUrl = client.authorizationUrl(authorizationParameters);
+    console.log(authorizationUrl);
+    // Redirect to the authorization server
     res.redirect(authorizationUrl);
   });
 
+  router.get("/oauth/verify", (req: Request, res: Response) => {
+
+    // Calculate the redirect URL the should be returned to after completing the OAuth flow
+    const redirectUri =
+    configuration.authorizeRedirectUri ||
+    getRedirectUri(req);
+
+    // Generate values that protect the flow from replay attacks.
+    const nonce = generators.nonce();
+    const state = generators.state();
+    
+    // Store the nonce and state in a session cookie so it can be checked in callback
+    res.cookie(NONCE_COOKIE_NAME, nonce, {
+      httpOnly: true,
+    });
+    res.cookie(STATE_COOKIE_NAME, state, {
+      httpOnly: true,
+    });
+
+    const authorizationParameters: AuthorizationParameters = {
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: SCOPES.join(" "),
+      state: hash(state),
+      nonce: hash(nonce),
+      vtr: JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM_IDENTITY_MEDIUM]),
+      ui_locales: LOCALE.EN
+    };
+
+    // Include claims that are being requested
+    if(CLAIMS) {
+      authorizationParameters.claims = JSON.stringify(CLAIMS);
+    }
+    
+    // Construct the url and redirect on to the authorization endpoint
+    const authorizationUrl = client.authorizationUrl(authorizationParameters);
+    console.log(authorizationUrl);
+    // Redirect to the authorization server
+    res.redirect(authorizationUrl);
+  });
+    
   // Callback receives the code and state from the authorization server
-  router.get(
-    "/oauth/callback",
-    asyncHandler(async (req: Request, res: Response) => {
+  router.get("/oauth/callback", asyncHandler(async (req: Request, res: Response) => {
       // Check for an error
       if (req.query["error"]) {
         throw new Error(`${req.query.error} - ${req.query.error_description}`);
@@ -214,8 +211,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
 
       // Get all the parameters to pass to the token exchange endpoint
       const redirectUri =
-        configuration.callbackRedirectUri ||
-        configuration.redirectUri ||
+        configuration.authorizeRedirectUri ||
         getRedirectUri(req);
       const params = client.callbackParams(req);
       const nonce = req.cookies[NONCE_COOKIE_NAME];
@@ -228,57 +224,107 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
         nonce: hash(nonce),
       });
 
-      // Call the userinfo endpoint the retreive the results of the flow.
-      const result = await getResult(ivPublicKey, client, tokenSet);
+      // Call the userinfo endpoint then retreive the results of the flow.
+      const result = await getResult(res, ivPublicKey, client, tokenSet);
 
       // Display the results.
-      res.render("result.njk", result);
+      res.render("result.njk", { result });
     })
   );
 
   // Use the refresh token to get a new an access token and update the results.
-  router.post(
-    "/oauth/refresh",
-    urlencoded({extended:true}),
-    asyncHandler(async (req: Request, res: Response) => {
+  router.post("/oauth/refresh", urlencoded({extended:true}), asyncHandler(async (req: Request, res: Response) => {
       const refreshToken = req.body.token;
 
       // Exchange the refresh token for a new access token.
       const tokenSet = await client.refresh(refreshToken);
 
-      // Call the userinfo endpoint the retreive the results of the flow.
-      const result = await getResult(ivPublicKey, client, tokenSet);
+      // Call the userinfo endpoint the retrieve the results of the flow.
+      const result = await getResult(res, ivPublicKey, client, tokenSet);
 
       // Display the results.
       res.render("result.njk", result);
     })
   );
 
-  router.post(
-    "/oauth/logout",
-    urlencoded({extended:true}),
-    asyncHandler(async (req: Request, res: Response) => {
-      const idToken = req.body.token;
+  router.get("/oauth/logout", (req: Request, res: Response) => {
+    // this handles the logout button click event
+    const redirectUri = configuration.postLogoutRedirectUri;
 
-      // Send the user back to One Login to terminate the session there
-      const endSessionUrl = client.endSessionUrl({
-        id_token_hint: idToken,
-        post_logout_redirect_uri: getPostLogoutRedirectUri(req)
-      })
+    const state = req.cookies[STATE_COOKIE_NAME];
+    const idtoken = req.cookies[ID_TOKEN_COOKIE_NAME];
+    const logoutUrl = client.endSessionUrl({
+      post_logout_redirect_uri: redirectUri,
+      id_token_hint: idtoken,    
+      state: hash(state)
+    })
+    console.log(logoutUrl);
+    res.redirect(logoutUrl);
+  });
 
-      //res.redirect(endSessionUrl)
-      res.render("logout.njk", {
-        endSessionUrl
+  router.get("/logged-out", (req: Request, res: Response) => {
+    // this handles the logout redirect
+    const message = {text: "You have been logged out." }; 
+    res.render("logged-out.njk", message);
+  });
+
+  router.post("/back-channel-logout",asyncHandler(async (req: Request, res: Response) => {
+
+      const logoutToken = await verifyLogoutToken(req);
+
+      if (logoutToken && validateLogoutTokenClaims(logoutToken, req)) {
+        //await destroyUserSessions(token.sub, req.app.locals.sessionStore);
+        res.sendStatus(HTTP_STATUS_CODES.OK);
+        //const logoutToken = JSON.stringify(decodeJwt(token), null, 2)
+        // const message = {text: "You have been logged out by a back-channel message." }; 
+        // res.render("back_channel-logout.njk", { logoutToken, message });;
+      }
+      else {
+        res.sendStatus(HTTP_STATUS_CODES.UNAUTHORIZED);
+      }
+  }));
+
+  async function verifyLogoutToken(req: Request): Promise<LogoutToken | undefined> {
+    if (!(req.body && Object.keys(req.body).includes("logout_token"))) {
+      return undefined;
+    }
+
+    try {
+      const JWKS = createRemoteJWKSet(new URL(issuer.metadata.jwks_uri!));
+
+      const { payload, protectedHeader } = await jwtVerify( req.body.logout_token, JWKS, {
+        issuer: issuer.issuer,
+        audience: client.metadata.client_id,
+        maxTokenAge: getLogoutTokenMaxAge(),
+        clockTolerance: getTokenValidationClockSkew()
       });
-    })
-  );
+  
+      return payload as LogoutToken;
+    } catch (e) {
+      console.error(getErrorMessage(e));
+      return undefined;
+    }
+  };
 
-  router.get(
-    "/oauth/post-logout",
-    asyncHandler(async (req: Request, res: Response) => {
-      res.render("post-logout.njk");
-    })
-  );
+  function validateLogoutTokenClaims(token: LogoutToken, req: Request): boolean {
+    if (!token.sub || /^\s*$/.test(token.sub)) {
+      console.error(`Logout token does not contain a subject`);
+      return false;
+    }
+    if (!token.events) {
+      console.error(`Logout token does not contain any event`);
+      return false;
+    }
+    if (!(BACK_CHANNEL_LOGOUT_EVENT in token.events)) {
+      console.error(`Logout token does not contain correct event: ${token.events}`);
+      return false;
+    }
+    if (Object.keys(token.events[BACK_CHANNEL_LOGOUT_EVENT]).length > 0) {
+      console.error(`Logout token back-channel logout event is not an empty object`);
+      return false;
+    }
+    return true;
+  }
 
   return router;
-}
+};

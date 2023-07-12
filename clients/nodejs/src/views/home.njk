@@ -7,25 +7,15 @@
   <div class="govuk-width-container ">
     <main class="govuk-main-wrapper">
 
-      <h1 class="govuk-heading-l">An example service</h1>
+      <h1 class="govuk-heading-l">{{ serviceHeading }}</h1>
       <p class="govuk-body">
-        Login to access the service
+        {{ serviceIntroMessage | safe }}
       </p>
 
       {{ govukButton({
-        text: "Authenticate",
-        href: "/oauth/login"
-      }) }}
-      <!--
-      Query parameters will be added to the /authorize request. Eg.:
-      {{ govukButton({
-        text: "Reauthenticate",
-        href: "/oauth/login?max_age=0"
-      }) }}
-      -->
-      {{ govukButton({
-        text: "Identity Verification",
-        href: "/oauth/iv"
+        text: "Start now",
+        href: "/oauth/login",
+        isStartButton: true
       }) }}
 
     </div>
