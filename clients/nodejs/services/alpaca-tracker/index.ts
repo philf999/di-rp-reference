@@ -2,11 +2,17 @@ import express, { Application, NextFunction, Request, Response } from "express";
 import session from "express-session";
 import cookieParser from "cookie-parser";
 import path from "node:path";
-import { nunjucks } from "./config/nunjucks";
-import { auth } from "./config/auth";
-
+import { nunjucks } from "../shared/utils/nunjucks";
+import { auth } from "../shared/auth";
+import { getNodeEnv } from "../shared/utils/config"; 
 export const app: Application = express();
 const port = process.env.NODE_PORT || 3000;
+
+declare module 'express-session' {
+  interface SessionData {
+    user: any;
+  }
+};
 
 (async () => {
   // Configure Nunjucks view engine
@@ -17,20 +23,20 @@ const port = process.env.NODE_PORT || 3000;
 
   // Configure body-parser
   app.use(express.json());
-  app.use(express.urlencoded());
+  app.use(express.urlencoded({ extended: true }));
   
   // Configure parsing cookies - required for storing nonce in authentication
   app.use(cookieParser());
   app.use(session({
-    name: "camelid-dept",
-    secret: "Shh, its a secret!", 
+    name: process.env.SESSION_NAME + "-session",
+    secret: process.env.SESSION_SECRET!, 
     cookie: {
-      // maxAge: 1000 * 120 * 60,
+      maxAge: 1000 * 120 * 60, // 2 hours
       secure: false,
       httpOnly: true
     },
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: true
   }));
 
   // Configure OpenID Connect Authentication middleware
@@ -46,9 +52,37 @@ const port = process.env.NODE_PORT || 3000;
     })
   );
 
+  function authenticate(req: Request, res: Response, next: NextFunction) {
+    if (req.session.user) {
+      next() 
+    }
+    else {
+      res.redirect("/oauth/login")
+    }
+  }
+
   // Application routes
-  app.get("/", (req: Request, res: Response) => {
-    res.render("home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING});
+  app.get("/camelids", authenticate, (req: Request, res: Response) => {
+    // res.render("home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING});
+    res.render(
+      "dashboard.njk", 
+      { 
+        authenticated: true, 
+        isProduction: getNodeEnv() == "development" ? false : true, 
+        navigationItems: [{
+          href: "/oauth/logout",
+          text: "Sign out of service",
+          id: "serviceSignOut"
+      },]
+    })
+  });
+
+  app.get(`${process.env.ROOT_ROUTE}`, (req: Request, res: Response) => {
+    res.render("home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING, serviceName: process.env.SESSION_NAME, serviceType: process.env.SERVICE_TYPE });
+  });
+
+  app.get(`${process.env.ROOT_ROUTE}/logged-in`,authenticate, (req: Request, res: Response) => {
+    res.render("service-home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING, serviceName: process.env.SESSION_NAME, serviceType: process.env.SERVICE_TYPE });
   });
 
   // Generic error handler

@@ -37,3 +37,4 @@ type LogoutToken = {
   sid?: string;
   events?: any;
 };
+

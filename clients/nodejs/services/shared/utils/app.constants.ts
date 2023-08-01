@@ -39,3 +39,8 @@ export const SCOPES = [
     "phone", // Return the user's telephone number
     "offline_access" // Return a refresh token so the access token can be refreshed before it expires
 ];
+
+export enum CLAIMS {
+  CoreIdentity = "https://vocab.account.gov.uk/v1/coreIdentityJWT",
+  Address = "https://vocab.account.gov.uk/v1/address"
+};

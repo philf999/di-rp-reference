@@ -6,9 +6,11 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "npx ts-node -r dotenv/config ./scripts/build.ts",
-    "start-alapaca": "node -r dotenv/config dist/index.js",
-    "dev-alpaca": "nodemon --exec \"npx ts-node -r dotenv/config ./src/index.ts dotenv_config_path=./env/alpaca/.env dotenv_config_debug=true\"",
-    "dev-llama": "nodemon --exec \"npx ts-node -r dotenv/config ./src/index.ts dotenv_config_path=./env/llama/.env dotenv_config_debug=true\""
+    "start-dashboard": "node -r dotenv/config dist/index.js",
+    "dev-dashboard": "nodemon --exec \"npx ts-node -r dotenv/config ./services/camelid-dashboard/index.ts dotenv_config_path=./services/camelid-dashboard/.env dotenv_config_debug=true\"",
+    "dev-alpaca": "nodemon --exec \"npx ts-node -r dotenv/config ./services/alpaca-tracker/index.ts dotenv_config_path=./services/alpaca-tracker/.env dotenv_config_debug=true\"",
+    "dev-llama": "nodemon --exec \"npx ts-node -r dotenv/config ./services/llama-ledger/index.ts dotenv_config_path=./services/llama-ledger/.env dotenv_config_debug=true\"",
+    "dev-dromedary": "nodemon --exec \"npx ts-node -r dotenv/config ./services/dromedary-directory/index.ts dotenv_config_path=./services/dromedary-directory/.env dotenv_config_debug=true\""
   },
   "engines": {
     "npm": ">=7.0.0",

@@ -1,33 +1,18 @@
 import { Request, Response, Router, urlencoded } from "express";
 import { jwtVerify, decodeJwt, KeyLike, createRemoteJWKSet } from "jose";
 import { Client, generators, TokenSet, AuthorizationParameters, } from "openid-client";
-import asyncHandler from "../async-handler";
-import { Claims, createClient, createIssuer, hash, readPrivateKey, readPublicKey } from "../govuk-one-login";
-import { PATH_DATA, VECTORS_OF_TRUST, LOCALE, SCOPES, HTTP_STATUS_CODES } from "../app.constants";
-import { getLogoutTokenMaxAge, getTokenValidationClockSkew, getErrorMessage} from "../config";
-
-// Requested claims
-const CLAIMS = {
-  userinfo: {
-    // Core identity
-    [Claims.CoreIdentity]: { essential: true },
-    // Address
-    //[Claims.Address]: { essential: true },
-  },
-};
+import asyncHandler from "./utils/async-handler";
+import { hash, readPrivateKey, readPublicKey } from "./utils/crypto";
+import { createClient, createIssuer } from "./utils/oidc-client";
+import { CLAIMS, PATH_DATA, VECTORS_OF_TRUST, LOCALE, SCOPES, HTTP_STATUS_CODES } from "./utils/app.constants";
+import { getGlobalLogoutUrl, getLogoutTokenMaxAge, getTokenValidationClockSkew, getErrorMessage} from "./utils/config";
 
 // Issuer that is must have issued identity claims.
 const ISSUER = "https://identity.integration.account.gov.uk/";
-const STATE_COOKIE_NAME = "state";
-const NONCE_COOKIE_NAME = "nonce";
-const ID_TOKEN_COOKIE_NAME = "id-token";
+const STATE_COOKIE_NAME = process.env.SESSION_NAME + "-state";
+const NONCE_COOKIE_NAME = process.env.SESSION_NAME + "-nonce";
+const ID_TOKEN_COOKIE_NAME = process.env.SESSION_NAME + "-id-token";
 const BACK_CHANNEL_LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
-
-function getRedirectUri(req: Request) {
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol;
-  const host = req.headers.host;
-  return `${protocol}://${host}/oauth/callback`;
-}
 
 async function getResult(
   res: Response,
@@ -69,15 +54,17 @@ async function getResult(
     tokenSet.access_token
   );
 
+  const serviceName = process.env.SERVICE_HEADING
+
   // If the core identity claim is not present GOV.UK One Login
   // was not able to prove your user’s identity or the claim
   // wasn't requested.
   let coreIdentity: string | undefined;
-  if (userinfo.hasOwnProperty(Claims.CoreIdentity)) {
+  if (userinfo.hasOwnProperty(CLAIMS.CoreIdentity)) {
 
     // Read the resulting core identity claim
     // See: https://auth-tech-docs.london.cloudapps.digital/integrate-with-integration-environment/process-identity-information/#process-your-user-s-identity-information
-    const coreIdentityJWT = userinfo[Claims.CoreIdentity];
+    const coreIdentityJWT = userinfo[CLAIMS.CoreIdentity];
 
     // Check the validity of the claim using the public key
     const { payload } = await jwtVerify(coreIdentityJWT!, ivPublicKey, {
@@ -98,6 +85,7 @@ async function getResult(
     idToken,
     userinfo: JSON.stringify(userinfo, null, 2),
     coreIdentity,
+    serviceName,
   };
 }
 
@@ -123,9 +111,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
   router.get("/oauth/login", (req: Request, res: Response) => {
 
     // Calculate the redirect URL the should be returned to after completing the OAuth flow
-    const redirectUri =
-    configuration.authorizeRedirectUri ||
-    getRedirectUri(req);
+    const redirectUri = configuration.authorizeRedirectUri;
 
     // Generate values that protect the flow from replay attacks.
     const nonce = generators.nonce();
@@ -135,6 +121,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
     res.cookie(NONCE_COOKIE_NAME, nonce, {
       httpOnly: true,
     });
+
     res.cookie(STATE_COOKIE_NAME, state, {
       httpOnly: true,
     });
@@ -164,9 +151,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
   router.get("/oauth/verify", (req: Request, res: Response) => {
 
     // Calculate the redirect URL the should be returned to after completing the OAuth flow
-    const redirectUri =
-    configuration.authorizeRedirectUri ||
-    getRedirectUri(req);
+    const redirectUri = configuration.authorizeRedirectUri;
 
     // Generate values that protect the flow from replay attacks.
     const nonce = generators.nonce();
@@ -210,9 +195,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       }
 
       // Get all the parameters to pass to the token exchange endpoint
-      const redirectUri =
-        configuration.authorizeRedirectUri ||
-        getRedirectUri(req);
+      const redirectUri = configuration.authorizeRedirectUri;
       const params = client.callbackParams(req);
       const nonce = req.cookies[NONCE_COOKIE_NAME];
       const state = req.cookies[STATE_COOKIE_NAME];
@@ -226,7 +209,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
 
       // Call the userinfo endpoint then retreive the results of the flow.
       const result = await getResult(res, ivPublicKey, client, tokenSet);
-
+      req.session.user = { sub: result.idToken!.sub};
       // Display the results.
       res.render("result.njk", { result });
     })
@@ -258,13 +241,19 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       id_token_hint: idtoken,    
       state: hash(state)
     })
+    req.session.user = null;
     console.log(logoutUrl);
     res.redirect(logoutUrl);
   });
 
+  router.get("/oauth/logout-header", (req: Request, res: Response) => {
+    req.session.user = null;
+    res.redirect("/sign-out");
+  });
+
   router.get("/logged-out", (req: Request, res: Response) => {
     // this handles the logout redirect
-    const message = {text: "You have been logged out." }; 
+    const message = { text: "You have logged out from all GOV.UK One Login integrated services." }; 
     res.render("logged-out.njk", message);
   });
 
@@ -273,7 +262,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       const logoutToken = await verifyLogoutToken(req);
 
       if (logoutToken && validateLogoutTokenClaims(logoutToken, req)) {
-        //await destroyUserSessions(token.sub, req.app.locals.sessionStore);
+        await destroyUserSessions(logoutToken.sub!, req.sessionStore);
         res.sendStatus(HTTP_STATUS_CODES.OK);
         //const logoutToken = JSON.stringify(decodeJwt(token), null, 2)
         // const message = {text: "You have been logged out by a back-channel message." }; 
@@ -283,6 +272,24 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
         res.sendStatus(HTTP_STATUS_CODES.UNAUTHORIZED);
       }
   }));
+
+  async function destroyUserSessions(sub: string, store: Express.SessionStore): Promise<Boolean> {
+    console.log("store");
+    console.log(store);
+    store.all!((error: any, session: any) => {
+      console.log("session");
+      console.log(session);
+      Object.entries(session).forEach( (key, index) => {
+        console.log("key");
+        console.log(key);
+        if (session[index].user.sub == sub) {
+          store.destroy(key.toString());
+          return true;
+        }
+      });
+    })
+    return false;
+  };
 
   async function verifyLogoutToken(req: Request): Promise<LogoutToken | undefined> {
     if (!(req.body && Object.keys(req.body).includes("logout_token"))) {

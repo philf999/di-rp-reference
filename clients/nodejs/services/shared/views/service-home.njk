@@ -1,28 +1,22 @@
 {% extends "template.njk" %}
+{% from "govuk/components/checkboxes/macro.njk" import govukCheckboxes %}
+{% from "govuk/components/radios/macro.njk" import govukRadios %}
 {% from "govuk/components/button/macro.njk" import govukButton %}
 
 {% block content %}
   <div class="govuk-width-container ">
     <main class="govuk-main-wrapper">
 
+      <h1 class="govuk-heading-l">You are logged in to {{ serviceHeading }}</h1>
+      <p class="govuk-body">
+        {{ serviceIntroMessage | safe }}
+      </p>
+
       <h1 class="govuk-heading-l">Access Token</h1>
       <pre>{{result.accessToken}}</pre>
 
       <h1 class="govuk-heading-l">ID Token</h1>
       <pre>{{result.idToken}}</pre>
-
-      <h1 class="govuk-heading-l">Refresh Token</h1>
-      {% if result.refreshToken %}
-      <pre>{{result.refreshToken}}</pre>
-      <form method="post" action="/oauth/refresh">
-        <input type="hidden" name="token" value="{{result.refreshToken}}"/>
-        {{ govukButton({
-          text: "Refresh"
-        }) }}
-      </form>
-      {% else %}
-      <p class="govuk-body-l">None</p>
-      {% endif %}
 
       <h1 class="govuk-heading-l">User Info</h1>
       <pre><code>{{result.userinfo}}</code></pre>
@@ -33,21 +27,12 @@
       {% else %}
       <p class="govuk-body-l">None</p>
       {% endif %}
-
-      {{ govukButton({
-        text: "Continue",
-        href: "/"
-      }) }}
-
-      {{ govukButton({
-        text: "Verify identity",
-        href: "verify"
-      }) }}
-
+      
       {{ govukButton({
         text: "Logout",
         href: "logout"
       }) }}
+
     </div>
   </main>
 </div>

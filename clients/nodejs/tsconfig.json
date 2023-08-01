@@ -9,7 +9,17 @@
     "moduleResolution": "node",
     "skipLibCheck": true
   },
-  "include": ["src", "types"],
+  "include": [
+    "services", 
+    "services/shared/types", 
+    "services/shared/utils/app.constants.ts", 
+    "services/shared/auth.ts", 
+    "services/shared/nunjucks.ts", 
+    "services/camelid-directory/index.ts", 
+    "services/llama-ledger/index.ts",
+    "services/alpaca-tracker/index.ts",
+    "services/dromedary-directory/index.ts",
+    "public"],
   "exclude": ["node_modules"],
   "ts-node": {
     "files": true

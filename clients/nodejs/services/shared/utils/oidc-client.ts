@@ -1,28 +1,5 @@
-import { createPrivateKey, createHash, createPublicKey } from "node:crypto";
 import { Client, ClientMetadata, Issuer } from "openid-client";
 import { JWK } from "jose";
-
-export enum Claims {
-  CoreIdentity = "https://vocab.account.gov.uk/v1/coreIdentityJWT",
-  Address = "https://vocab.account.gov.uk/v1/address"
-}
-
-export function readPublicKey(publicKey: string) {
-  const armouredKey = `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
-  return createPublicKey(armouredKey);
-}
-
-export function readPrivateKey(privateKey: string) {
-  return createPrivateKey({
-    key: Buffer.from(privateKey, "base64"),
-    type: "pkcs8",
-    format: "der",
-  });
-}
-
-export function hash(value: string) {
-  return createHash("sha256").update(value).digest("base64url");
-}
 
 export async function createIssuer(
   configuration: AuthMiddlewareConfiguration

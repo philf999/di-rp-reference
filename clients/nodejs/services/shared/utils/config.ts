@@ -22,3 +22,7 @@ export function getErrorMessage(error: unknown) {
     if (error instanceof Error) return error.message
     return String(error)
 }
+
+export function getGlobalLogoutUrl(): string {
+    return process.env.GLOBAL_SIGN_OUT_URL || "https://home.integration.account.gov.uk/sign-out";
+}
