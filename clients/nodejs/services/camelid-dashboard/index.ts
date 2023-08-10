@@ -4,13 +4,15 @@ import cookieParser from "cookie-parser";
 import path from "node:path";
 import { nunjucks } from "../shared/utils/nunjucks";
 import { auth } from "../shared/auth";
-import { getNodeEnv } from "../shared/utils/config"; 
+import { getNodeEnv, getRootRoute, getHomeRoute, getHomePageUrl, getServiceUrl, getServiceName } from "../shared/utils/config"; 
+import { AuthenticatedUser, isAuthenticated } from "../shared/utils/helpers";
 export const app: Application = express();
 const port = process.env.NODE_PORT || 3000;
 
 declare module 'express-session' {
   interface SessionData {
-    user: any;
+    user: any,
+    identity: any;
   }
 };
 
@@ -54,37 +56,42 @@ declare module 'express-session' {
     })
   );
 
-  function authenticate(req: Request, res: Response, next: NextFunction) {
-    if (req.session.user) {
-      next() 
-    }
-    else {
-      res.redirect("/oauth/login")
-    }
-  }
+  // Redirect root to start
+  app.get("/", (req: Request, res: Response) => {
+    res.redirect(`${getRootRoute()}`);
+  });
+
+  app.get(`${getRootRoute()}`, (req: Request, res: Response) => {
+    res.render("start.njk", 
+      {
+        authenticated: isAuthenticated(req, res),
+        // Start page config
+        serviceName: getServiceName(), 
+        serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE,  
+        serviceType: process.env.SERVICE_TYPE,
+        // GOV.UK header config
+        homepageUrl: `${getHomePageUrl()}`,
+        serviceUrl: `${getServiceUrl()}`
+      }
+    );
+  });
 
   // Application routes
-  app.get("/camelids", authenticate, (req: Request, res: Response) => {
-    // res.render("home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING});
+  app.get(`${getHomeRoute()}`, AuthenticatedUser, (req: Request, res: Response) => {
     res.render(
       "dashboard.njk", 
       { 
-        authenticated: true, 
+        authenticated: isAuthenticated(req, res),
+        // Service header config
         isProduction: getNodeEnv() == "development" ? false : true, 
+        serviceName: getServiceName(),
         navigationItems: [{
           href: "/oauth/logout",
           text: "Sign out of service",
           id: "serviceSignOut"
-      },]
-    })
-  });
-
-  app.get(`${process.env.ROOT_ROUTE}`, (req: Request, res: Response) => {
-    res.render("home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING, serviceName: process.env.SESSION_NAME, serviceType: process.env.SERVICE_TYPE });
-  });
-
-  app.get(`${process.env.ROOT_ROUTE}/logged-in`,authenticate, (req: Request, res: Response) => {
-    res.render("service-home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING, serviceName: process.env.SESSION_NAME, serviceType: process.env.SERVICE_TYPE });
+        }]
+      }
+    )
   });
 
   // Generic error handler

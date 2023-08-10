@@ -1,11 +1,11 @@
 import { Request, Response, Router, urlencoded } from "express";
 import { jwtVerify, decodeJwt, KeyLike, createRemoteJWKSet } from "jose";
-import { Client, generators, TokenSet, AuthorizationParameters, } from "openid-client";
+import { Client, generators, TokenSet, AuthorizationParameters, BaseClient, } from "openid-client";
 import asyncHandler from "./utils/async-handler";
 import { hash, readPrivateKey, readPublicKey } from "./utils/crypto";
 import { createClient, createIssuer } from "./utils/oidc-client";
 import { CLAIMS, PATH_DATA, VECTORS_OF_TRUST, LOCALE, SCOPES, HTTP_STATUS_CODES } from "./utils/app.constants";
-import { getGlobalLogoutUrl, getLogoutTokenMaxAge, getTokenValidationClockSkew, getErrorMessage} from "./utils/config";
+import { getGlobalLogoutUrl, getLogoutTokenMaxAge, getTokenValidationClockSkew, getErrorMessage, getHomeRoute} from "./utils/config";
 
 // Issuer that is must have issued identity claims.
 const ISSUER = "https://identity.integration.account.gov.uk/";
@@ -15,6 +15,7 @@ const ID_TOKEN_COOKIE_NAME = process.env.SESSION_NAME + "-id-token";
 const BACK_CHANNEL_LOGOUT_EVENT = "http://schemas.openid.net/event/backchannel-logout";
 
 async function getResult(
+  req: Request,
   res: Response,
   ivPublicKey: KeyLike,
   client: Client,
@@ -54,8 +55,6 @@ async function getResult(
     tokenSet.access_token
   );
 
-  const serviceName = process.env.SERVICE_HEADING
-
   // If the core identity claim is not present GOV.UK One Login
   // was not able to prove your user’s identity or the claim
   // wasn't requested.
@@ -84,9 +83,55 @@ async function getResult(
     refreshToken,
     idToken,
     userinfo: JSON.stringify(userinfo, null, 2),
-    coreIdentity,
-    serviceName,
+    coreIdentity
   };
+}
+
+function buildAuthorizationUrl(
+  configuration: AuthMiddlewareConfiguration,
+  req: Request,
+  res: Response<any, Record<string, any>>,
+  client: BaseClient,
+  vtr: string,
+  claims?: { userinfo: any },
+  additionalParameters?: any
+  ): string {
+
+  const redirectUri = configuration.authorizeRedirectUri;
+
+  // Generate values that protect the flow from replay attacks.
+  const nonce = generators.nonce();
+  const state = generators.state();
+
+  // Store the nonce and state in a session cookie so it can be checked in callback
+  res.cookie(NONCE_COOKIE_NAME, nonce, {
+    httpOnly: true,
+  });
+
+  res.cookie(STATE_COOKIE_NAME, state, {
+    httpOnly: true,
+  });
+
+  const authorizationParameters: AuthorizationParameters = {
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: SCOPES.join(" "),
+    state: hash(state),
+    nonce: hash(nonce),
+    vtr: vtr,
+    ui_locales: "en-GB en",
+  };
+
+  if(typeof claims === "object"){
+    authorizationParameters.claims = JSON.stringify(claims);
+  }
+
+  if(typeof additionalParameters === "object") {
+    Object.assign(authorizationParameters, additionalParameters);
+  }
+
+  // Construct the url and redirect on to the authorization endpoint
+  return client.authorizationUrl(authorizationParameters);
 }
 
 export async function auth(configuration: AuthMiddlewareConfiguration) {
@@ -104,86 +149,33 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
   const issuer: any = await createIssuer(configuration);
 
   // The client that requests the tokens.
-  const client = createClient(configuration, issuer, jwks);
+  const client: BaseClient = createClient(configuration, issuer, jwks);
 
   const router = Router();
 
   router.get("/oauth/login", (req: Request, res: Response) => {
-
-    // Calculate the redirect URL the should be returned to after completing the OAuth flow
-    const redirectUri = configuration.authorizeRedirectUri;
-
-    // Generate values that protect the flow from replay attacks.
-    const nonce = generators.nonce();
-    const state = generators.state();
     
-    // Store the nonce and state in a session cookie so it can be checked in callback
-    res.cookie(NONCE_COOKIE_NAME, nonce, {
-      httpOnly: true,
-    });
+    const vtr = JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM])
 
-    res.cookie(STATE_COOKIE_NAME, state, {
-      httpOnly: true,
-    });
-
-    const authorizationParameters: AuthorizationParameters = {
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: SCOPES.join(" "),
-      state: hash(state),
-      nonce: hash(nonce),
-      vtr: JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM]),
-      ui_locales: LOCALE.EN
-    };
-
-    // Include claims that are being requested
-    // if(CLAIMS) {
-    //   authorizationParameters.claims = JSON.stringify(CLAIMS);
-    // }
-    
     // Construct the url and redirect on to the authorization endpoint
-    const authorizationUrl = client.authorizationUrl(authorizationParameters);
+    const authorizationUrl = buildAuthorizationUrl(configuration, req, res, client, vtr, undefined, req.query);
     console.log(authorizationUrl);
-    // Redirect to the authorization server
     res.redirect(authorizationUrl);
   });
 
   router.get("/oauth/verify", (req: Request, res: Response) => {
 
-    // Calculate the redirect URL the should be returned to after completing the OAuth flow
-    const redirectUri = configuration.authorizeRedirectUri;
+    const vtr = JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM])
 
-    // Generate values that protect the flow from replay attacks.
-    const nonce = generators.nonce();
-    const state = generators.state();
-    
-    // Store the nonce and state in a session cookie so it can be checked in callback
-    res.cookie(NONCE_COOKIE_NAME, nonce, {
-      httpOnly: true,
-    });
-    res.cookie(STATE_COOKIE_NAME, state, {
-      httpOnly: true,
-    });
-
-    const authorizationParameters: AuthorizationParameters = {
-      redirect_uri: redirectUri,
-      response_type: "code",
-      scope: SCOPES.join(" "),
-      state: hash(state),
-      nonce: hash(nonce),
-      vtr: JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM_IDENTITY_MEDIUM]),
-      ui_locales: LOCALE.EN
-    };
-
-    // Include claims that are being requested
-    if(CLAIMS) {
-      authorizationParameters.claims = JSON.stringify(CLAIMS);
+    const claims = {
+      userinfo: {
+        [CLAIMS.CoreIdentity]: null,
+        [CLAIMS.Address]: null
+      }
     }
-    
     // Construct the url and redirect on to the authorization endpoint
-    const authorizationUrl = client.authorizationUrl(authorizationParameters);
+    const authorizationUrl = buildAuthorizationUrl(configuration, req, res, client, vtr, claims, req.query);
     console.log(authorizationUrl);
-    // Redirect to the authorization server
     res.redirect(authorizationUrl);
   });
     
@@ -208,10 +200,15 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       });
 
       // Call the userinfo endpoint then retreive the results of the flow.
-      const result = await getResult(res, ivPublicKey, client, tokenSet);
-      req.session.user = { sub: result.idToken!.sub};
+      const result = await getResult(req, res, ivPublicKey, client, tokenSet);
+      req.session.user = { 
+        sub: result.idToken!.sub, 
+        idtoken: result.idToken, 
+        coreidentity: result.coreIdentity 
+      };
+
       // Display the results.
-      res.render("result.njk", { result });
+      res.redirect(getHomeRoute());
     })
   );
 
@@ -223,7 +220,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       const tokenSet = await client.refresh(refreshToken);
 
       // Call the userinfo endpoint the retrieve the results of the flow.
-      const result = await getResult(res, ivPublicKey, client, tokenSet);
+      const result = await getResult(req, res, ivPublicKey, client, tokenSet);
 
       // Display the results.
       res.render("result.njk", result);
@@ -242,13 +239,16 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       state: hash(state)
     })
     req.session.user = null;
+    req.session.destroy(function(err) {
+      // cannot access session here
+    });
     console.log(logoutUrl);
     res.redirect(logoutUrl);
   });
 
   router.get("/oauth/logout-header", (req: Request, res: Response) => {
     req.session.user = null;
-    res.redirect("/sign-out");
+    res.redirect(getGlobalLogoutUrl());
   });
 
   router.get("/logged-out", (req: Request, res: Response) => {
@@ -259,7 +259,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
 
   router.post("/back-channel-logout",asyncHandler(async (req: Request, res: Response) => {
 
-      const logoutToken = await verifyLogoutToken(req);
+      const logoutToken =await verifyLogoutToken(req);
 
       if (logoutToken && validateLogoutTokenClaims(logoutToken, req)) {
         await destroyUserSessions(logoutToken.sub!, req.sessionStore);

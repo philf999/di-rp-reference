@@ -26,3 +26,23 @@ export function getErrorMessage(error: unknown) {
 export function getGlobalLogoutUrl(): string {
     return process.env.GLOBAL_SIGN_OUT_URL || "https://home.integration.account.gov.uk/sign-out";
 }
+
+export function getRootRoute(): string {
+    return process.env.ROOT_ROUTE || "/";
+}
+
+export function getHomeRoute(): string {
+    return process.env.HOME_ROUTE || `${getRootRoute()}/home`;
+}
+
+export function getServiceUrl(): string {
+    return process.env.SERVICE_URL || "https://gov.uk";
+}
+
+export function getHomePageUrl(): string {
+    return process.env.HOME_PAGE_URL || "https://gov.uk";
+}
+
+export function getServiceName(): string {
+    return process.env.SERVICE_NAME || "";
+}

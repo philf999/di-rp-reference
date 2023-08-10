@@ -21,16 +21,16 @@
 {% block header %}
 {% if authenticated %}
   {{ govukOneLoginServiceHeader ({ 
-    serviceName: "Camelid service dashboard",
+    serviceName: serviceName,
     isProduction: isProduction,
     navigationItems: navigationItems, 
-    logOutUrl: "/oauth/logout-header"
+    logOutUrl: logOutUrl
   }) }}
 {% else %}
   {{ govukHeader ({
-    serviceName: "Camelid service dashboard",
-    homepageUrl: "http://localhost:3001/",
-    serviceUrl: "http://localhost:3001/camelids"
+    serviceName: serviceName,
+    homepageUrl: homepageUrl,
+    serviceUrl: serviceUrl
   }) }}
 {% endif %}
   

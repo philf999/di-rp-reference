@@ -12,19 +12,6 @@
       <h1 class="govuk-heading-l">ID Token</h1>
       <pre>{{result.idToken}}</pre>
 
-      {# <h1 class="govuk-heading-l">Refresh Token</h1>
-      {% if result.refreshToken %}
-      <pre>{{result.refreshToken}}</pre>
-      <form method="post" action="/oauth/refresh">
-        <input type="hidden" name="token" value="{{result.refreshToken}}"/>
-        {{ govukButton({
-          text: "Refresh"
-        }) }}
-      </form>
-      {% else %}
-      <p class="govuk-body-l">None</p>
-      {% endif %} #}
-
       <h1 class="govuk-heading-l">User Info</h1>
       <pre><code>{{result.userinfo}}</code></pre>
 
