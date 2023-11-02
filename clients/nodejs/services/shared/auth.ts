@@ -165,7 +165,7 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
 
   router.get("/oauth/verify", (req: Request, res: Response) => {
 
-    const vtr = JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM])
+    const vtr = JSON.stringify([VECTORS_OF_TRUST.AUTH_MEDIUM_IDENTITY_MEDIUM])
 
     const claims = {
       userinfo: {
@@ -206,9 +206,9 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
         idtoken: result.idToken, 
         coreidentity: result.coreIdentity 
       };
-
+      const homeRedirect = getHomeRoute();
       // Display the results.
-      res.redirect(getHomeRoute());
+      res.redirect(homeRedirect);
     })
   );
 

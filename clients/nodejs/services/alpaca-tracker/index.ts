@@ -73,8 +73,12 @@ declare module 'express-session' {
     );
   });
 
-  app.get(`/alpaca/home`,isAuthenticated, isVerified, (req: Request, res: Response) => {
+  app.get(`${getHomeRoute()}`, AuthenticatedUser, VerifiedUser, (req: Request, res: Response) => {
     res.render("service-home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING, serviceName: process.env.SESSION_NAME, serviceType: process.env.SERVICE_TYPE });
+  });
+
+  app.get('*', (req: Request, res: Response) => {
+    console.log('No route matched');
   });
 
   // Generic error handler
