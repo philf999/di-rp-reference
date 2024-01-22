@@ -7,25 +7,32 @@
   <div class="govuk-width-container ">
     <main class="govuk-main-wrapper">
 
-      <h1 class="govuk-heading-l">You are logged in to {{ serviceHeading }}</h1>
-      <p class="govuk-body">
-        {{ serviceIntroMessage | safe }}
-      </p>
+      <h1 class="govuk-heading-l">You are logged in to {{ serviceName }}</h1>
 
-      <h1 class="govuk-heading-l">Access Token</h1>
-      <pre>{{result.accessToken}}</pre>
+      <h2 class="govuk-heading-m">Access Token</h2>
+      <pre>{{ resultData.accessToken | dump(2) }}</pre>
 
-      <h1 class="govuk-heading-l">ID Token</h1>
-      <pre>{{result.idToken}}</pre>
+      <h2 class="govuk-heading-m">ID Token</h2>
+      <pre>{{ resultData.idToken | dump(2) }}</pre>
 
-      <h1 class="govuk-heading-l">User Info</h1>
-      <pre><code>{{result.userinfo}}</code></pre>
+      <h2 class="govuk-heading-m">Subject identifier</h2>
+      <pre>{{ resultData.sub }}</pre>
 
-      <h1 class="govuk-heading-l">Core Identity Claim</h1>
-      {% if result.coreIdentity %}
-      <pre>{{result.coreIdentity}}</pre>
+      <h2 class="govuk-heading-m">User Info</h2>
+      <pre><code>{{ resultData.userinfo | dump(2) }}</code></pre>
+
+      <h2 class="govuk-heading-m">Return code</h2>
+      {% if resultData.returnCode %}
+      <pre>{{ resultData.returnCode | dump(2) }}</pre>
       {% else %}
-      <p class="govuk-body-l">None</p>
+      <p class="govuk-body-m">None</p>
+      {% endif %}
+
+      <h2 class="govuk-heading-m">Core Identity Claim</h2>
+      {% if resultData.coreIdentity %}
+      <pre>{{ resultData.coreIdentity | dump(2) }}</pre>
+      {% else %}
+      <p class="govuk-body-m">None</p>
       {% endif %}
       
       {{ govukButton({

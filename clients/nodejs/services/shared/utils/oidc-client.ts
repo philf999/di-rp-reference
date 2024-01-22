@@ -16,7 +16,7 @@ export async function createIssuer(
   return new Issuer(configuration.issuerMetadata);
 }
 
-export function createClient(
+export function createPrivateKeyClient(
   configuration: AuthMiddlewareConfiguration,
   issuer: Issuer,
   jwks: Array<JWK>,
@@ -36,6 +36,27 @@ export function createClient(
   const client = new issuer.Client(clientMetadata, {
     keys: jwks
   });
+
+  return client;
+}
+
+export function createClientSecretClient(
+  configuration: AuthMiddlewareConfiguration,
+  issuer: Issuer
+): Client {
+  // Override client metadata if defined in configuration
+  const clientMetadata: ClientMetadata = Object.assign(
+    {
+      // Default configuration for using GOV.UK Sign In
+      client_id: configuration.clientId,
+      client_secret: configuration.clientSecret,
+      token_endpoint_auth_method: "client_secret_post",
+      id_token_signed_response_alg: "ES256",
+    },
+    configuration.clientMetadata
+  );
+
+  const client = new issuer.Client(clientMetadata);
 
   return client;
 }

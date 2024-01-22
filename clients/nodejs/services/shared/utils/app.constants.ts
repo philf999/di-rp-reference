@@ -42,5 +42,9 @@ export const SCOPES = [
 
 export enum CLAIMS {
   CoreIdentity = "https://vocab.account.gov.uk/v1/coreIdentityJWT",
-  Address = "https://vocab.account.gov.uk/v1/address"
+  Address = "https://vocab.account.gov.uk/v1/address",
+  ReturnCode = "https://vocab.account.gov.uk/v1/returnCode",
+  DrivingPermit = "https://vocab.account.gov.uk/v1/drivingPermit",
+  Passport = "https://vocab.account.gov.uk/v1/passport",
+  SocialSecurityRecord = "https://vocab.account.gov.uk/v1/socialSecurityRecord"
 };

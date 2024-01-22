@@ -20,7 +20,7 @@ export function isAuthenticated(req: Request, res: Response) : boolean {
 }
 
 export function VerifiedUser(req: Request, res: Response, next: NextFunction) {
-  if (req.session.user && req.session.user.coreidentity) {
+  if (req.session.user && req.session.user.coreidentity || req.session.user && req.session.user.returnCode) {
     next();
   }
   else {

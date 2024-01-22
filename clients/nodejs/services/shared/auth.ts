@@ -1,9 +1,9 @@
 import { Request, Response, Router, urlencoded } from "express";
-import { jwtVerify, decodeJwt, KeyLike, createRemoteJWKSet } from "jose";
+import { jwtVerify, decodeJwt, KeyLike, createRemoteJWKSet, JWTPayload } from "jose";
 import { Client, generators, TokenSet, AuthorizationParameters, BaseClient, } from "openid-client";
 import asyncHandler from "./utils/async-handler";
 import { hash, readPrivateKey, readPublicKey } from "./utils/crypto";
-import { createClient, createIssuer } from "./utils/oidc-client";
+import { createPrivateKeyClient, createClientSecretClient, createIssuer } from "./utils/oidc-client";
 import { CLAIMS, PATH_DATA, VECTORS_OF_TRUST, LOCALE, SCOPES, HTTP_STATUS_CODES } from "./utils/app.constants";
 import { getGlobalLogoutUrl, getLogoutTokenMaxAge, getTokenValidationClockSkew, getErrorMessage, getHomeRoute} from "./utils/config";
 
@@ -25,6 +25,7 @@ async function getResult(
     throw new Error("No access token received");
   }
   else {
+    console.log("Access token");
     console.log(tokenSet.access_token);
   }
 
@@ -32,21 +33,20 @@ async function getResult(
     throw new Error("No id token received");
   }
   else {
+    console.log("ID token");
     console.log(tokenSet.id_token);
   }
 
-  const accessToken = JSON.stringify(decodeJwt(tokenSet.access_token), null, 2);
-  const idToken = tokenSet.id_token
-    ? JSON.stringify(decodeJwt(tokenSet.id_token), null, 2)
-    : undefined;
+  const accessToken = decodeJwt(tokenSet.access_token);
+  const idToken = decodeJwt(tokenSet.id_token);
 
   res.cookie(ID_TOKEN_COOKIE_NAME, tokenSet.id_token, {
     httpOnly: true,
   });
 
-  const refreshToken = tokenSet.refresh_token
-    ? JSON.stringify(decodeJwt(tokenSet.refresh_token), null, 2)
-    : undefined;
+  // const refreshToken = tokenSet.refresh_token
+  //   ? JSON.stringify(decodeJwt(tokenSet.refresh_token), null, 2)
+  //   : undefined;
 
   // Use the access token to authenticate the call to userinfo
   // Note: This is an HTTP GET to https://oidc.integration.account.gov.uk/userinfo
@@ -54,15 +54,18 @@ async function getResult(
   const userinfo = await client.userinfo<GovUkOneLoginUserInfo>(
     tokenSet.access_token
   );
+  
+  console.log("Userinfo");
+  console.log(JSON.stringify(userinfo, null, 2));
 
   // If the core identity claim is not present GOV.UK One Login
   // was not able to prove your user’s identity or the claim
   // wasn't requested.
-  let coreIdentity: string | undefined;
+  let coreIdentity: JWTPayload | undefined;
+  
   if (userinfo.hasOwnProperty(CLAIMS.CoreIdentity)) {
 
     // Read the resulting core identity claim
-    // See: https://auth-tech-docs.london.cloudapps.digital/integrate-with-integration-environment/process-identity-information/#process-your-user-s-identity-information
     const coreIdentityJWT = userinfo[CLAIMS.CoreIdentity];
 
     // Check the validity of the claim using the public key
@@ -75,15 +78,22 @@ async function getResult(
       throw new Error("Expected level of confidence was not achieved.");
     }
 
-    coreIdentity = JSON.stringify(payload, null, 2);
+    coreIdentity = payload;
   }
 
+  let returnCode: string | undefined;
+  if (userinfo.hasOwnProperty(CLAIMS.ReturnCode)) {
+
+    let returnCodeArray = userinfo[CLAIMS.ReturnCode];
+
+    returnCode = returnCodeArray;
+  }
   return {
     accessToken,
-    refreshToken,
     idToken,
-    userinfo: JSON.stringify(userinfo, null, 2),
-    coreIdentity
+    userinfo,
+    coreIdentity,
+    returnCode
   };
 }
 
@@ -149,8 +159,13 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
   const issuer: any = await createIssuer(configuration);
 
   // The client that requests the tokens.
-  const client: BaseClient = createClient(configuration, issuer, jwks);
-
+  let client: BaseClient;
+  if (configuration.tokenAuthMethod == "private_key_jwt") {
+    client = createPrivateKeyClient(configuration, issuer, jwks);
+  }
+  else {
+     client = createClientSecretClient(configuration, issuer);
+  }
   const router = Router();
 
   router.get("/oauth/login", (req: Request, res: Response) => {
@@ -170,7 +185,11 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
     const claims = {
       userinfo: {
         [CLAIMS.CoreIdentity]: null,
-        [CLAIMS.Address]: null
+        [CLAIMS.Address]: null,
+        [CLAIMS.Passport]: null,
+        [CLAIMS.DrivingPermit]: null,
+        [CLAIMS.ReturnCode]: null,
+        [CLAIMS.SocialSecurityRecord]: null
       }
     }
     // Construct the url and redirect on to the authorization endpoint
@@ -203,8 +222,11 @@ export async function auth(configuration: AuthMiddlewareConfiguration) {
       const result = await getResult(req, res, ivPublicKey, client, tokenSet);
       req.session.user = { 
         sub: result.idToken!.sub, 
-        idtoken: result.idToken, 
-        coreidentity: result.coreIdentity 
+        idToken: result.idToken, 
+        accessToken: result.accessToken,
+        coreIdentity: result.coreIdentity,
+        userinfo: result.userinfo,
+        returnCode: result.returnCode
       };
       const homeRedirect = getHomeRoute();
       // Display the results.

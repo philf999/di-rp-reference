@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import path from "node:path";
 import { nunjucks } from "../shared/utils/nunjucks";
 import { auth } from "../shared/auth";
-import { getNodeEnv, getRootRoute, getHomeRoute, getHomePageUrl, getServiceUrl, getServiceName } from "../shared/utils/config"; 
+import { getNodeEnv, getRootRoute, getHomeRoute, getHomePageUrl, getServiceUrl, getServiceName, getServiceIntroMessage } from "../shared/utils/config"; 
 import { AuthenticatedUser, isAuthenticated, VerifiedUser, isVerified } from "../shared/utils/helpers";
 export const app: Application = express();
 const port = process.env.NODE_PORT || 3000;
@@ -62,9 +62,9 @@ declare module 'express-session' {
     res.render("start.njk", 
       {
         authenticated: isAuthenticated(req, res),
-        // Start page config
+        // page config
         serviceName: getServiceName(), 
-        serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE,  
+        serviceIntroMessage: getServiceIntroMessage(),  
         serviceType: process.env.SERVICE_TYPE,
         // GOV.UK header config
         homepageUrl: `${getHomePageUrl()}`,
@@ -74,7 +74,32 @@ declare module 'express-session' {
   });
 
   app.get(`${getHomeRoute()}`, AuthenticatedUser, VerifiedUser, (req: Request, res: Response) => {
-    res.render("service-home.njk", { serviceIntroMessage: process.env.SERVICE_INTRO_MESSAGE, serviceHeading: process.env.SERVICE_HEADING, serviceName: process.env.SESSION_NAME, serviceType: process.env.SERVICE_TYPE });
+    res.render("service-home.njk", 
+      { 
+        authenticated: true,
+        // page config
+        serviceName: getServiceName(), 
+        serviceIntroMessage: getServiceIntroMessage(), 
+        serviceType: process.env.SERVICE_TYPE, 
+        resultData: req.session.user,
+        // GOV.UK header config
+        // homepageUrl: `${getHomePageUrl()}`,
+        // serviceUrl: `${getServiceUrl()}`
+        // Service header config
+        isProduction: getNodeEnv() == "development" ? false : true, 
+        navigationItems: [
+          {
+            href: "http://localhost:3001/camelid/dashboard",
+            text: "Dashboard",
+            id: "dashboard"
+          },
+          {
+            href: "/oauth/logout",
+            text: "Sign out of service",
+            id: "serviceSignOut"
+          }
+        ]
+      });
   });
 
   app.get('*', (req: Request, res: Response) => {

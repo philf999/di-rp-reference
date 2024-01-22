@@ -46,3 +46,7 @@ export function getHomePageUrl(): string {
 export function getServiceName(): string {
     return process.env.SERVICE_NAME || "";
 }
+
+export function getServiceIntroMessage(): string {
+    return process.env.SERVICE_INTRO_MESSAGE || "";
+}
